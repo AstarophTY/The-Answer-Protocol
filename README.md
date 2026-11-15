@@ -37,6 +37,7 @@ make run-client     # terminal 2 — the CLI client
 make run-bridge     # terminal 3 — WebSocket bridge (127.0.0.1:7878)
 make run-client-gui # terminal 4 — GUI dev server (Vite prints a localhost URL)
 make lint           # rustfmt --check + clippy -D warnings on all crates
+make test           # unit tests (RFC 42TAP command parser, responses)
 make clean          # remove build artifacts
 ```
 
@@ -181,7 +182,11 @@ combat outcomes and respawns, and quest progress/completion. To monitor behaviou
 
 ## Testing
 
+- **Unit tests:** `make test` covers the RFC 42TAP command parser (every verb, case
+  insensitivity, missing arguments → `400`, unknown verbs) and the JSON response envelope.
 - **Lint/build:** `make lint` (rustfmt + clippy `-D warnings`) and `make build`.
+- **CI:** GitHub Actions runs fmt, clippy and tests on the three crates, plus lint and build
+  of the GUI, on every push.
 - **Manual multiplayer:** start the server, connect two CLI clients (and/or the GUI via
   the bridge) with different names. Verify `presence_enter`/`presence_leave` events,
   `CHAT GLOBAL/ROOM/GROUP` scoping, and that `TAKE` in one client removes the item from

@@ -231,3 +231,161 @@ fn parse_slot(raw: &str) -> Result<EquipSlot, Response> {
         _ => Err(Response::error(400, "Unknown slot (RIGHT/LEFT)")),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_ok(line: &str) -> Command {
+        Command::parse(line).unwrap_or_else(|e| panic!("{line:?} failed: {e:?}"))
+    }
+
+    fn error_code(line: &str) -> u16 {
+        match Command::parse(line) {
+            Err(Response::Error { code, .. }) => code,
+            other => panic!("{line:?} should fail, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verbs_are_case_insensitive() {
+        assert!(matches!(parse_ok("look"), Command::Look));
+        assert!(matches!(parse_ok("LoOk"), Command::Look));
+        assert!(matches!(parse_ok("WHO"), Command::Who));
+        assert!(matches!(parse_ok("quit"), Command::Quit));
+    }
+
+    #[test]
+    fn connect_with_and_without_class() {
+        match parse_ok("CONNECT neo warrior") {
+            Command::Connect { name, class } => {
+                assert_eq!(name, "neo");
+                assert_eq!(class.as_deref(), Some("warrior"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        match parse_ok("CONNECT trinity") {
+            Command::Connect { name, class } => {
+                assert_eq!(name, "trinity");
+                assert!(class.is_none());
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(error_code("CONNECT"), 400);
+    }
+
+    #[test]
+    fn move_accepts_full_and_short_directions() {
+        assert!(matches!(
+            parse_ok("MOVE north"),
+            Command::Move {
+                direction: Direction::North
+            }
+        ));
+        assert!(matches!(
+            parse_ok("GO w"),
+            Command::Move {
+                direction: Direction::West
+            }
+        ));
+        assert_eq!(error_code("MOVE up"), 400);
+        assert_eq!(error_code("MOVE"), 400);
+    }
+
+    #[test]
+    fn chat_keeps_the_whole_message() {
+        match parse_ok("CHAT room hello there, friend") {
+            Command::Chat {
+                scope: ChatScope::Room,
+                text,
+            } => assert_eq!(text, "hello there, friend"),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(error_code("CHAT"), 400);
+        assert_eq!(error_code("CHAT global"), 400);
+        assert_eq!(error_code("CHAT whisper hi"), 400);
+    }
+
+    #[test]
+    fn item_commands_require_an_argument() {
+        match parse_ok("TAKE rusty sword") {
+            Command::Take { item } => assert_eq!(item, "rusty sword"),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(error_code("TAKE"), 400);
+        assert_eq!(error_code("DROP"), 400);
+        assert_eq!(error_code("ATTACK"), 400);
+        assert_eq!(error_code("TALK"), 400);
+    }
+
+    #[test]
+    fn equip_parses_slot_and_item() {
+        match parse_ok("EQUIP right iron sword") {
+            Command::Equip {
+                slot: EquipSlot::Right,
+                item,
+            } => assert_eq!(item, "iron sword"),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert!(matches!(
+            parse_ok("UNEQUIP LEFT"),
+            Command::Unequip {
+                slot: EquipSlot::Left
+            }
+        ));
+        assert_eq!(error_code("EQUIP head helmet"), 400);
+        assert_eq!(error_code("EQUIP right"), 400);
+        assert_eq!(error_code("UNEQUIP"), 400);
+    }
+
+    #[test]
+    fn group_subcommands() {
+        assert!(matches!(
+            parse_ok("GROUP create"),
+            Command::Group(GroupAction::Create)
+        ));
+        match parse_ok("GROUP INVITE morpheus") {
+            Command::Group(GroupAction::Invite { target }) => assert_eq!(target, "morpheus"),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(error_code("GROUP INVITE"), 400);
+        assert_eq!(error_code("GROUP"), 400);
+        assert_eq!(error_code("GROUP dance"), 400);
+    }
+
+    #[test]
+    fn quest_subcommands_and_npc_requests() {
+        assert!(matches!(
+            parse_ok("QUESTS"),
+            Command::Quest(QuestAction::Summary)
+        ));
+        match parse_ok("QUEST ACCEPT q1") {
+            Command::Quest(QuestAction::Accept { id }) => assert_eq!(id, "q1"),
+            other => panic!("unexpected {other:?}"),
+        }
+        match parse_ok("QUEST old hermit") {
+            Command::Quest(QuestAction::Request { npc }) => assert_eq!(npc, "old hermit"),
+            other => panic!("unexpected {other:?}"),
+        }
+        assert_eq!(error_code("QUEST"), 400);
+        assert_eq!(error_code("QUEST COMPLETE"), 400);
+    }
+
+    #[test]
+    fn unknown_verbs_are_reported() {
+        match parse_ok("DANCE wildly") {
+            Command::Unknown(verb) => assert_eq!(verb, "DANCE"),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn responses_are_single_json_lines() {
+        let line = Response::error(400, "bad").to_line();
+        assert!(line.ends_with('\n'));
+        assert_eq!(line.matches('\n').count(), 1);
+        let value: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(value["status"], "error");
+        assert_eq!(value["code"], 400);
+    }
+}
