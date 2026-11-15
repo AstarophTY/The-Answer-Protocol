@@ -44,6 +44,10 @@ lint: ## Check formatting + clippy on all Rust crates
 	cd gui && npm install
 	cd gui && npm run lint
 
+.PHONY: test
+test: ## Run the Rust unit tests (protocol parser, ...)
+	@for c in $(RUST_CRATES); do echo ">> cargo test ($$c)"; (cd $$c && cargo test) || exit 1; done
+
 .PHONY: clean
 clean: ## Remove all build artifacts (Rust target/ + GUI dist + node_modules)
 	@for c in $(RUST_CRATES); do echo ">> clean ($$c)"; (cd $$c && cargo clean); done
